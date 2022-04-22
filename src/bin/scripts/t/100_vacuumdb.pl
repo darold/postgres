@@ -152,11 +152,34 @@ $node->issues_sql_like(
 	[ 'vacuumdb', '--schema', '"Foo"', 'postgres' ],
 	qr/VACUUM "Foo".bar/,
 	'vacuumdb --schema schema only');
+$node->issues_sql_like(
+	[ 'vacuumdb', '--exclude-schema', '"Foo"', 'postgres' ],
+	qr/(?:(?!VACUUM "Foo".bar).)*/,
+	'vacuumdb --exclude-schema schema');
 $node->command_fails(
 	[ 'vacuumdb',   '-n', 'pg_catalog', '-t', 'pg_class', 'postgres' ],
 	'cannot vacuum all tables in schema(s) and specific table(s) at the same time');
 $node->command_fails(
 	[ 'vacuumdb',   '-n', 'pg_catalog', '-N',  '"Foo"', 'postgres' ],
 	'cannot use option -n | --schema and -N | --exclude-schema at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', '-N',  '"Foo"' ],
+	'cannot use option -a and -N | --exclude-schema at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', '-n',  '"Foo"' ],
+	'cannot use option -a and -n | --schema at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', '-t',  '"Foo".bar' ],
+	'cannot use option -a and -t | --table at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', '-n',  '"Foo"', 'postgres' ],
+	'cannot use option -a and -n | --schema at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', '-d',  'postgres' ],
+	'cannot use option -a and -d | --dbname at the same time');
+$node->command_fails(
+	[ 'vacuumdb',   '-a', 'postgres' ],
+	'cannot use option -a and a dbname as argument at the same time');
+
 
 done_testing();

@@ -68,6 +68,15 @@ typedef enum
 VacObjectFilter objfilter = OBJFILTER_NONE;
 
 
+typedef enum
+{
+	FILTER_ERR_ALL,
+	FILTER_ERR_SCHEMA_ALL,
+	FILTER_ERR_TABLE_ALL,
+	FILTER_ERR_SCHEMA_TABLE
+} VacFilterErrorr;
+
+
 static void vacuum_one_database(ConnParams *cparams,
 								vacuumingOptions *vacopts,
 								int stage,
@@ -90,6 +99,8 @@ static void run_vacuum_command(PGconn *conn, const char *sql, bool echo,
 static void help(const char *progname);
 
 void check_objfilter(VacObjectFilter curr_objfilter, VacObjectFilter curr_option);
+
+void filter_error(VacFilterErrorr filter_error);
 
 /* For analyze-in-stages mode */
 #define ANALYZE_NO_STAGE	-1
@@ -293,6 +304,7 @@ main(int argc, char *argv[])
 	 */
 	if (optind < argc && dbname == NULL)
 	{
+		check_objfilter(objfilter, OBJFILTER_DATABASE);
 		dbname = argv[optind];
 		optind++;
 	}
@@ -420,48 +432,66 @@ check_objfilter(VacObjectFilter curr_objfilter, VacObjectFilter curr_option)
 		case OBJFILTER_DATABASE:
 			/* When filtering on database name, vacuum on all database is not allowed. */
 			if (curr_objfilter == OBJFILTER_ALL)
-				pg_fatal("cannot vacuum all databases and a specific one at the same time");
+				filter_error(FILTER_ERR_ALL);
 			break;
 		case OBJFILTER_ALL:
 			/* When vacuuming all database, filter on database name is not allowed. */
 			if (curr_objfilter == OBJFILTER_DATABASE)
-				pg_fatal("cannot vacuum all databases and a specific one at the same time");
+				filter_error(FILTER_ERR_ALL);
 			/* When vacuuming all database, filter on schema name is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA)
-				pg_fatal("cannot vacuum specific schema(s) in all databases");
-			/* When vacuuming all database, schema exclusion is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
-				pg_fatal("cannot exclude from vacuum specific schema(s) in all databases");
+			if (curr_objfilter == OBJFILTER_SCHEMA
+					|| curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
+				filter_error(FILTER_ERR_SCHEMA_ALL);
 			/* When vacuuming all database, filter on table name is not allowed. */
 			if (curr_objfilter == OBJFILTER_TABLE)
-				pg_fatal("cannot vacuum specific table(s) in all databases");
+				filter_error(FILTER_ERR_TABLE_ALL);
 			break;
 		case OBJFILTER_TABLE:
 			/* When filtering on table name, filter by schema is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA)
-				pg_fatal("cannot vacuum all tables in schema(s) and specific table(s) at the same time");
-			/* When filtering on table name, schema exclusion is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
-				pg_fatal("cannot vacuum specific table(s) and exclude specific schema(s) at the same time");
+			if (curr_objfilter == OBJFILTER_SCHEMA
+					|| curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
+				filter_error(FILTER_ERR_SCHEMA_TABLE);
+			/* When vacuuming all database, filter on table name is not allowed. */
+			if (curr_objfilter == OBJFILTER_ALL)
+				filter_error(FILTER_ERR_TABLE_ALL);
 			break;
 		case OBJFILTER_SCHEMA:
 			/* When filtering on schema name, filter by table is not allowed. */
-			if (curr_objfilter == OBJFILTER_TABLE)
-				pg_fatal("cannot vacuum all tables in schema(s) and specific table(s) at the same time");
-			/* When filtering on schema name, schema exclusion is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
-				pg_fatal("cannot vacuum all tables in schema(s) and exclude specific schema(s) at the same time");
+			if (curr_objfilter == OBJFILTER_TABLE
+					|| curr_objfilter == OBJFILTER_SCHEMA_EXCLUDE)
+				filter_error(FILTER_ERR_SCHEMA_TABLE);
 			/* filtering on schema name can not be use on all database. */
 			if (curr_objfilter == OBJFILTER_ALL)
-				pg_fatal("cannot vacuum specific schema(s) in all databases");
+				filter_error(FILTER_ERR_SCHEMA_ALL);
 			break;
 		case OBJFILTER_SCHEMA_EXCLUDE:
 			/* When filtering on schema exclusion, filter by table is not allowed. */
-			if (curr_objfilter == OBJFILTER_TABLE)
-				pg_fatal("cannot vacuum all tables in schema(s) and specific table(s) at the same time");
-			/* When filetring on schema exclusion, filter by schema is not allowed. */
-			if (curr_objfilter == OBJFILTER_SCHEMA)
-				pg_fatal("cannot vacuum all tables in schema(s) and exclude specific schema(s) at the same time");
+			if (curr_objfilter == OBJFILTER_TABLE
+					|| curr_objfilter == OBJFILTER_SCHEMA)
+				filter_error(FILTER_ERR_SCHEMA_TABLE);
+			/* filtering on schema name can not be use on all database. */
+			if (curr_objfilter == OBJFILTER_ALL)
+				filter_error(FILTER_ERR_SCHEMA_ALL);
+			break;
+	}
+}
+
+void
+filter_error(VacFilterErrorr filter_error)
+{
+	switch (filter_error)
+	{
+		case FILTER_ERR_ALL:
+			pg_fatal("cannot vacuum all databases and a specific one at the same time");
+			break;
+		case FILTER_ERR_SCHEMA_ALL:
+			pg_fatal("cannot vacuum specific schema(s) in all databases");
+			break;
+		case FILTER_ERR_TABLE_ALL:
+			pg_fatal("cannot vacuum specific table(s) in all databases");
+			break;
+		case FILTER_ERR_SCHEMA_TABLE:
+			pg_fatal("cannot vacuum all tables in schema(s) and specific table(s) at the same time");
 			break;
 	}
 }
@@ -663,10 +693,16 @@ vacuum_one_database(ConnParams *cparams,
 	if (objects_listed)
 	{
 		appendPQExpBufferStr(&catalog_query, " JOIN listed_objects"
-				 " ON listed_objects.object_oid OPERATOR(pg_catalog.=) ");
+				 " ON listed_objects.object_oid ");
+
+		if (objfilter == OBJFILTER_SCHEMA_EXCLUDE)
+			appendPQExpBufferStr(&catalog_query, "OPERATOR(pg_catalog.!=) ");
+		else
+			appendPQExpBufferStr(&catalog_query, "OPERATOR(pg_catalog.=) ");
+
 		if (objfilter == OBJFILTER_TABLE)
 			appendPQExpBufferStr(&catalog_query, "c.oid\n");
-		if (objfilter == OBJFILTER_SCHEMA || objfilter == OBJFILTER_SCHEMA_EXCLUDE)
+		else if (objfilter == OBJFILTER_SCHEMA || objfilter == OBJFILTER_SCHEMA_EXCLUDE)
 			appendPQExpBufferStr(&catalog_query, "ns.oid\n");
 	}
 
@@ -676,7 +712,8 @@ vacuum_one_database(ConnParams *cparams,
 	 * type.  Instead, let the server decide whether a given relation can
 	 * be processed in which case the user will know about it.
 	 */
-	if (!objects_listed || objfilter == OBJFILTER_SCHEMA)
+	if (!objects_listed || objfilter == OBJFILTER_SCHEMA
+			|| objfilter == OBJFILTER_SCHEMA_EXCLUDE)
 	{
 		appendPQExpBufferStr(&catalog_query, " WHERE c.relkind OPERATOR(pg_catalog.=) ANY (array["
 							 CppAsString2(RELKIND_RELATION) ", "
