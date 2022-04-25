@@ -103,6 +103,8 @@ $node->safe_psql(
   CREATE TABLE funcidx (x int);
   INSERT INTO funcidx VALUES (0),(1),(2),(3);
   CREATE INDEX i0 ON funcidx ((f1(x)));
+  CREATE SCHEMA "Foo";
+  CREATE TABLE "Foo".bar(id int);
 |);
 $node->command_ok([qw|vacuumdb -Z --table="need""q(uot"(")x") postgres|],
 	'column list');
@@ -146,5 +148,38 @@ $node->issues_sql_like(
 	[ 'vacuumdb', '--min-xid-age', '2147483001', 'postgres' ],
 	qr/GREATEST.*relfrozenxid.*2147483001/,
 	'vacuumdb --table --min-xid-age');
+$node->issues_sql_like(
+	[ 'vacuumdb', '--schema', '"Foo"', 'postgres' ],
+	qr/VACUUM "Foo".bar/,
+	'vacuumdb --schema schema only');
+$node->issues_sql_like(
+	[ 'vacuumdb', '--exclude-schema', '"Foo"', 'postgres' ],
+	qr/(?:(?!VACUUM "Foo".bar).)*/,
+	'vacuumdb --exclude-schema schema');
+$node->command_fails(
+	[ 'vacuumdb', '-n', 'pg_catalog', '-t', 'pg_class', 'postgres' ],
+	'cannot use options -n and -t at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-n', 'pg_catalog', '-N', '"Foo"', 'postgres' ],
+	'cannot use options -n and -N at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', '-N', '"Foo"' ],
+	'cannot use options -a and -N at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', '-n', '"Foo"' ],
+	'cannot use options -a and -n at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', '-t', '"Foo".bar' ],
+	'cannot use options -a and -t at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', '-n', '"Foo"', 'postgres' ],
+	'cannot use options -a and -n at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', '-d', 'postgres' ],
+	'cannot use options -a and -d at the same time');
+$node->command_fails(
+	[ 'vacuumdb', '-a', 'postgres' ],
+	'cannot use option -a and a dbname as argument at the same time');
+
 
 done_testing();
