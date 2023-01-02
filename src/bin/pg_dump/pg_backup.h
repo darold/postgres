@@ -200,6 +200,7 @@ typedef struct _dumpOptions
 
 	int			sequence_data;	/* dump sequence data even in schema-only mode */
 	int			do_nothing;
+	bool			with_childs;
 } DumpOptions;
 
 /*
