@@ -421,6 +421,7 @@ main(int argc, char **argv)
 		{"on-conflict-do-nothing", no_argument, &dopt.do_nothing, 1},
 		{"rows-per-insert", required_argument, NULL, 10},
 		{"include-foreign-data", required_argument, NULL, 11},
+		{"with-childs", no_argument, NULL, 12},
 
 		{NULL, 0, NULL, 0}
 	};
@@ -631,6 +632,10 @@ main(int argc, char **argv)
 										  optarg);
 				break;
 
+			case 12:				/* dump child table too */
+				dopt.with_childs = true;
+				break;
+
 			default:
 				/* getopt_long already emitted a complaint */
 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
@@ -809,6 +814,14 @@ main(int argc, char **argv)
 								&schema_exclude_oids,
 								false);
 	/* non-matching exclusion patterns aren't an error */
+
+	/*
+	 * The include child option require that there is
+	 * at least one table inclusion
+	 */
+	if (dopt.with_childs && table_include_patterns.head == NULL
+			&& table_exclude_patterns.head == NULL)
+		pg_fatal("option --with-childs requires option -t/--table or -T/--exclude-table");
 
 	/* Expand table selection patterns into OID lists */
 	if (table_include_patterns.head != NULL)
@@ -1088,6 +1101,9 @@ help(const char *progname)
 	printf(_("  --use-set-session-authorization\n"
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));
+	printf(_("  --with-childs                include or exclude from a dump all child and partition\n"
+			 "                               tables when a parent table is specified using\n"
+			 "                               -t/--table or -T/--exclude-table\n"));
 
 	printf(_("\nConnection options:\n"));
 	printf(_("  -d, --dbname=DBNAME      database to dump\n"));
@@ -1521,6 +1537,15 @@ expand_table_name_patterns(Archive *fout,
 		int			dotcnt;
 
 		/*
+		 * With --include_child we look recursively to the inheritance
+		 * tree to find the childs tables of the matching include filter
+		 */
+		if (fout->dopt->with_childs)
+		{
+			appendPQExpBuffer(query, "WITH RECURSIVE child_tree (relid) AS (\n");
+		}
+
+		/*
 		 * Query must remain ABSOLUTELY devoid of unqualified names.  This
 		 * would be unnecessary given a pg_table_is_visible() variant taking a
 		 * search_path argument.
@@ -1546,6 +1571,20 @@ expand_table_name_patterns(Archive *fout,
 		else if (dotcnt == 2)
 			prohibit_crossdb_refs(GetConnection(fout), dbbuf.data, cell->val);
 		termPQExpBuffer(&dbbuf);
+
+		if (fout->dopt->with_childs)
+		{
+			appendPQExpBuffer(query, "\n  UNION ALL"
+						 "\n    SELECT c.oid AS relid"
+						 "\n    FROM child_tree AS p"
+						 "\n      JOIN pg_catalog.pg_inherits AS i"
+						 "\n        ON (p.relid OPERATOR(pg_catalog.=) i.inhparent)"
+						 "\n      JOIN pg_catalog.pg_class AS c"
+						 "\n        ON (c.oid OPERATOR(pg_catalog.=) i.inhrelid)"
+						 "\n)"
+						 "\nSELECT relid FROM child_tree");
+
+		}
 
 		ExecuteSqlStatement(fout, "RESET search_path");
 		res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);

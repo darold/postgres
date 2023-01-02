@@ -319,6 +319,17 @@ my %pgdump_runs = (
 			'--exclude-table=dump_test.test_table', 'postgres',
 		],
 	},
+	exclude_child_table => {
+		dump_cmd => [
+			'pg_dump',
+			'--no-sync',
+			'--with-childs',
+			"--file=$tempdir/exclude_child_table.sql",
+			'--exclude-table=dump_test.measurement',
+			'postgres',
+		],
+	},
+
 	exclude_test_table_data => {
 		dump_cmd => [
 			'pg_dump',
@@ -408,6 +419,18 @@ my %pgdump_runs = (
 			'--no-sync',
 			"--file=$tempdir/only_dump_test_table.sql",
 			'--table=dump_test.test_table',
+			'--lock-wait-timeout='
+			  . (1000 * $PostgreSQL::Test::Utils::timeout_default),
+			'postgres',
+		],
+	},
+	include_child_table => {
+		dump_cmd => [
+			'pg_dump',
+			'--no-sync',
+			'--with-childs',
+			"--file=$tempdir/include_child_table.sql",
+			'--table=dump_test.measurement',
 			'--lock-wait-timeout='
 			  . (1000 * $PostgreSQL::Test::Utils::timeout_default),
 			'postgres',
@@ -541,6 +564,7 @@ my %full_runs = (
 	compression              => 1,
 	createdb                 => 1,
 	defaults                 => 1,
+	exclude_child_table      => 1,
 	exclude_dump_test_schema => 1,
 	exclude_test_table       => 1,
 	exclude_test_table_data  => 1,
@@ -936,6 +960,10 @@ my %tests = (
 			role             => 1,
 			section_pre_data => 1,
 			binary_upgrade   => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	  },
 
@@ -1025,11 +1053,16 @@ my %tests = (
 
 	'ALTER TABLE measurement OWNER TO' => {
 		regexp => qr/^\QALTER TABLE dump_test.measurement OWNER TO \E.+;/m,
-		like =>
-		  { %full_runs, %dump_test_schema_runs, section_pre_data => 1, },
+		like => {
+			%full_runs,
+			%dump_test_schema_runs,
+			section_pre_data => 1,
+			include_child_table => 1,
+		},
 		unlike => {
 			exclude_dump_test_schema => 1,
 			no_owner                 => 1,
+			exclude_child_table      => 1,
 		},
 	},
 
@@ -1040,8 +1073,12 @@ my %tests = (
 			%full_runs,
 			role             => 1,
 			section_pre_data => 1,
+			include_child_table => 1,
 		},
-		unlike => { no_owner => 1, },
+		unlike => {
+			no_owner => 1,
+			exclude_child_table => 1,
+		},
 	},
 
 	'ALTER FOREIGN TABLE foreign_table OWNER TO' => {
@@ -2793,11 +2830,16 @@ my %tests = (
 			\)\n
 			\QPARTITION BY RANGE (logdate);\E\n
 			/xm,
-		like =>
-		  { %full_runs, %dump_test_schema_runs, section_pre_data => 1, },
+		like => {
+			%full_runs,
+			%dump_test_schema_runs,
+			section_pre_data => 1,
+			include_child_table => 1,
+		},
 		unlike => {
 			binary_upgrade           => 1,
 			exclude_dump_test_schema => 1,
+			exclude_child_table      => 1,
 		},
 	},
 
@@ -2824,6 +2866,10 @@ my %tests = (
 			section_pre_data => 1,
 			role             => 1,
 			binary_upgrade   => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -2838,10 +2884,14 @@ my %tests = (
 			\QEXECUTE FUNCTION dump_test.trigger_func();\E
 			/xm,
 		like => {
-			%full_runs, %dump_test_schema_runs, section_post_data => 1,
+			%full_runs,
+			%dump_test_schema_runs,
+			section_post_data => 1,
+			include_child_table => 1,
 		},
 		unlike => {
 			exclude_dump_test_schema => 1,
+			exclude_child_table => 1,
 		},
 	},
 
@@ -2869,6 +2919,10 @@ my %tests = (
 			section_post_data => 1,
 			role              => 1,
 			binary_upgrade    => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -2881,6 +2935,10 @@ my %tests = (
 			section_post_data => 1,
 			role              => 1,
 			binary_upgrade    => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -2893,6 +2951,10 @@ my %tests = (
 			section_post_data => 1,
 			role              => 1,
 			binary_upgrade    => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -3250,6 +3312,7 @@ my %tests = (
 			schema_only             => 1,
 			section_post_data       => 1,
 			test_schema_plus_large_objects => 1,
+			include_child_table => 1,
 		},
 		unlike => {
 			exclude_dump_test_schema => 1,
@@ -3258,6 +3321,7 @@ my %tests = (
 			pg_dumpall_globals_clean => 1,
 			role                     => 1,
 			section_pre_data         => 1,
+			exclude_child_table      => 1,
 		},
 	},
 
@@ -3271,9 +3335,16 @@ my %tests = (
 			\QALTER TABLE ONLY dump_test.measurement\E \n^\s+
 			\QADD CONSTRAINT measurement_pkey PRIMARY KEY (city_id, logdate);\E
 		/xm,
-		like =>
-		  { %full_runs, %dump_test_schema_runs, section_post_data => 1, },
-		unlike => { exclude_dump_test_schema => 1, },
+		like => {
+			%full_runs,
+			%dump_test_schema_runs,
+			section_post_data => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_dump_test_schema => 1,
+			exclude_child_table => 1,
+		},
 	},
 
 	'CREATE INDEX ... ON measurement_y2006_m2' => {
@@ -3284,6 +3355,10 @@ my %tests = (
 			%full_runs,
 			role              => 1,
 			section_post_data => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -3295,6 +3370,10 @@ my %tests = (
 			%full_runs,
 			role              => 1,
 			section_post_data => 1,
+			include_child_table => 1,
+		},
+		unlike => {
+			exclude_child_table => 1,
 		},
 	},
 
@@ -3324,6 +3403,7 @@ my %tests = (
 			role                     => 1,
 			schema_only              => 1,
 			section_post_data        => 1,
+			include_child_table      => 1,
 		},
 		unlike => {
 			only_dump_test_schema    => 1,
@@ -3332,6 +3412,7 @@ my %tests = (
 			pg_dumpall_globals_clean => 1,
 			section_pre_data         => 1,
 			test_schema_plus_large_objects => 1,
+			exclude_child_table      => 1,
 		},
 	},
 
@@ -3614,11 +3695,16 @@ my %tests = (
 						   TO regress_dump_test_role;',
 		regexp =>
 		  qr/^\QGRANT SELECT ON TABLE dump_test.measurement TO regress_dump_test_role;\E/m,
-		like =>
-		  { %full_runs, %dump_test_schema_runs, section_pre_data => 1, },
+		like => {
+			%full_runs,
+			%dump_test_schema_runs,
+			section_pre_data => 1,
+			include_child_table => 1,
+		},
 		unlike => {
 			exclude_dump_test_schema => 1,
 			no_privs                 => 1,
+			exclude_child_table      => 1,
 		},
 	},
 
@@ -3636,8 +3722,12 @@ my %tests = (
 			%full_runs,
 			role             => 1,
 			section_pre_data => 1,
+			include_child_table => 1,
 		},
-		unlike => { no_privs => 1, },
+		unlike => {
+			no_privs => 1,
+			exclude_child_table => 1,
+		},
 	},
 
 	'GRANT ALL ON LARGE OBJECT ...' => {
@@ -3884,6 +3974,7 @@ my %tests = (
 			only_dump_test_table => 1,
 			role                 => 1,
 			section_pre_data     => 1,
+			include_child_table  => 1,
 		},
 		unlike => { no_privs => 1, },
 	},
@@ -4105,6 +4196,13 @@ $node->command_fails_like(
 	[ 'pg_dumpall', '--exclude-database', 'myhost.mydb' ],
 	qr/pg_dumpall: error: improper qualified name \(too many dotted names\): myhost\.mydb/,
 	'pg_dumpall: option --exclude-database rejects multipart database names');
+
+#########################################
+# Test invalid use of --with-childs
+$node->command_fails_like(
+	[ 'pg_dump', '-p', "$port", '--with-childs' ],
+	qr/pg_dump: error: option --with-childs requires option -t\/--table or -T\/--exclude-table/,
+	'pg_dump: option --with-childs require inclusion or exclusion of tables');
 
 #########################################
 # Test valid database exclusion patterns

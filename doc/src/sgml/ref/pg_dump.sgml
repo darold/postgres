@@ -1173,6 +1173,17 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>--with-childs</option></term>
+      <listitem>
+       <para>
+	Include or exclude from a dump all child and partition tables when a parent
+	table is specified using option <option>-t</option>/<option>--table</option>
+	or <option>-T</option>/<option>--exclude-table</option>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
        <term><option>-?</option></term>
        <term><option>--help</option></term>
        <listitem>
